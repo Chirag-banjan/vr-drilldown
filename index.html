@@ -129,39 +129,38 @@
         #vr-sim-btn:hover { box-shadow: 0 0 24px rgba(245,87,108,0.5); transform: translateY(-1px); }
         .vr-btn-label-sub { font-size: 10px; opacity: 0.7; display: block; }
 
-        /* ── VR Simulator Overlay ── */
+        /* ── VR Simulator Overlay (single-view first-person) ── */
         #vr-sim-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             display: none; z-index: 5; pointer-events: none;
         }
-        .vr-eye {
-            position: absolute; top: 0; width: 50%; height: 100%;
-            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.45) 72%, rgba(0,0,0,0.92) 100%);
-            border-radius: 0;
+        /* Subtle edge vignette for immersive feel */
+        #vr-sim-overlay .vr-vignette {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.35) 85%, rgba(0,0,0,0.7) 100%);
         }
-        .vr-eye.left { left: 0; }
-        .vr-eye.right { right: 0; }
-        .vr-divider {
-            position: absolute; left: 50%; top: 0; width: 5px; height: 100%;
-            background: #000; transform: translateX(-50%);
+        /* Center crosshair / reticle */
+        #vr-sim-overlay .vr-reticle {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 32px; height: 32px;
         }
-        .vr-crosshair {
-            position: absolute; top: 50%; width: 28px; height: 28px;
-            transform: translate(-50%, -50%); opacity: 0.7;
+        #vr-sim-overlay .vr-reticle::before,
+        #vr-sim-overlay .vr-reticle::after {
+            content: ''; position: absolute; background: rgba(79, 195, 247, 0.7); border-radius: 1px;
         }
-        .vr-crosshair.left { left: 25%; }
-        .vr-crosshair.right { left: 75%; }
-        .vr-crosshair::before, .vr-crosshair::after {
-            content: ''; position: absolute; background: rgba(79, 195, 247, 0.8); border-radius: 1px;
+        #vr-sim-overlay .vr-reticle::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+        #vr-sim-overlay .vr-reticle::after { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+        #vr-sim-overlay .vr-reticle-dot {
+            position: absolute; top: 50%; left: 50%; width: 6px; height: 6px;
+            border-radius: 50%; background: rgba(79, 195, 247, 0.9);
+            transform: translate(-50%, -50%);
         }
-        .vr-crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
-        .vr-crosshair::after { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
-        .vr-crosshair-dot {
-            position: absolute; top: 50%; width: 6px; height: 6px; border-radius: 50%;
-            background: rgba(79,195,247,0.9); transform: translate(-50%,-50%);
+        /* Scope ring around reticle */
+        #vr-sim-overlay .vr-reticle-ring {
+            position: absolute; top: 50%; left: 50%;
+            width: 48px; height: 48px; transform: translate(-50%, -50%);
+            border: 1.5px solid rgba(79, 195, 247, 0.25); border-radius: 50%;
         }
-        .vr-crosshair-dot.left { left: 25%; }
-        .vr-crosshair-dot.right { left: 75%; }
 
         #vr-sim-hud {
             position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -236,15 +235,12 @@
         </div>
     </div>
 
-    <!-- VR Simulator Overlay (outside HUD so it persists when HUD is hidden) -->
+    <!-- VR Simulator Overlay (single-view first-person) -->
     <div id="vr-sim-overlay">
-        <div class="vr-eye left"></div>
-        <div class="vr-eye right"></div>
-        <div class="vr-divider"></div>
-        <div class="vr-crosshair left"></div>
-        <div class="vr-crosshair right"></div>
-        <div class="vr-crosshair-dot left"></div>
-        <div class="vr-crosshair-dot right"></div>
+        <div class="vr-vignette"></div>
+        <div class="vr-reticle"></div>
+        <div class="vr-reticle-dot"></div>
+        <div class="vr-reticle-ring"></div>
     </div>
     <div id="vr-sim-hud">
         <button id="exit-vr-btn">Exit VR Simulator</button>
@@ -276,7 +272,7 @@
     <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { StereoEffect } from 'three/addons/effects/StereoEffect.js';
+// StereoEffect removed — VR sim uses single-view first-person mode
 
 // ═══════════════════════════════════════════════════════
 // CONFIGURATION
@@ -522,6 +518,12 @@ scene.fog = new THREE.FogExp2(0x060612, 0.018);
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.copy(HOME_CAM);
 
+// VR Dolly — positions the user in VR space. At origin in desktop mode.
+const dolly = new THREE.Group();
+dolly.name = 'vrDolly';
+scene.add(dolly);
+dolly.add(camera);
+
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -529,10 +531,6 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.2;
 renderer.xr.enabled = true;
 document.body.appendChild(renderer.domElement);
-
-// StereoEffect for VR simulator
-const stereoEffect = new StereoEffect(renderer);
-stereoEffect.setEyeSeparation(0.064);
 
 // VR state
 let vrSimActive = false;
@@ -826,15 +824,20 @@ function animateScale(obj, target, duration, delay = 0) {
 let cameraAnim = null;
 
 function flyTo(targetPos, targetLookAt, duration = 800) {
+    if (renderer.xr.isPresenting) {
+        // Real VR: snap-teleport the dolly (camera controlled by headset)
+        dolly.position.set(targetPos.x, 0, targetPos.z);
+        return;
+    }
     if (vrSimActive) {
         // VR Simulator: snap teleport (no smooth anim to prevent nausea)
         camera.position.copy(targetPos);
-        // Compute yaw/pitch to face the target
         const dir = new THREE.Vector3().subVectors(targetLookAt, targetPos).normalize();
         vrSimYaw = Math.atan2(-dir.x, -dir.z);
         vrSimPitch = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
         return;
     }
+    // Desktop: smooth animated fly
     controls.enabled = false;
     cameraAnim = {
         sp: camera.position.clone(), ep: targetPos.clone(),
@@ -1150,7 +1153,7 @@ function onClick(e) {
 // ═══════════════════════════════════════════════════════
 const controller1 = renderer.xr.getController(0);
 const controller2 = renderer.xr.getController(1);
-scene.add(controller1); scene.add(controller2);
+dolly.add(controller1); dolly.add(controller2);
 
 function addControllerRay(controller) {
     const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -8)]);
@@ -1179,11 +1182,32 @@ controller1.addEventListener('squeezestart', () => popNav());
 controller2.addEventListener('squeezestart', () => popNav());
 
 // Real VR session handlers
+const vrSavedCam = { pos: null, target: null };
+
 renderer.xr.addEventListener('sessionstart', () => {
+    // Save desktop camera state
+    vrSavedCam.pos = camera.position.clone();
+    vrSavedCam.target = controls.target.clone();
+    controls.enabled = false;
+
+    // Position dolly so user stands ~12 units from the panel grid, at proper height
+    // Panels are at Z=0, centered at Y=0. Dolly Y=0 with local-floor puts eyes at ~1.6m
+    dolly.position.set(0, 0, 12);
+    // Reset camera local position (XR headset tracking sets it)
+    camera.position.set(0, 0, 0);
+
     document.getElementById('hud').style.display = 'none';
     document.getElementById('vr-controls').style.display = 'none';
 });
+
 renderer.xr.addEventListener('sessionend', () => {
+    // Restore dolly and camera to desktop state
+    dolly.position.set(0, 0, 0);
+    if (vrSavedCam.pos) camera.position.copy(vrSavedCam.pos);
+    if (vrSavedCam.target) controls.target.copy(vrSavedCam.target);
+    controls.enabled = true;
+    controls.update();
+
     document.getElementById('hud').style.display = '';
     document.getElementById('vr-controls').style.display = '';
 });
@@ -1265,11 +1289,8 @@ function enterVRSim() {
     vrSimInfo.style.display = 'block';
     vrSimPrompt.style.display = 'block';
 
-    // Resize stereo effect
-    stereoEffect.setSize(window.innerWidth, window.innerHeight);
-
-    // Set camera FOV for VR feel
-    camera.fov = 90;
+    // Wider FOV for first-person feel
+    camera.fov = 85;
     camera.updateProjectionMatrix();
 }
 
@@ -1295,9 +1316,6 @@ function exitVRSim() {
     vrSimInfo.style.display = 'none';
     vrSimPrompt.style.display = 'none';
     document.getElementById('hud').style.display = '';
-
-    // Restore renderer size (StereoEffect may have changed it)
-    renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 // Pointer lock for mouse look
@@ -1431,7 +1449,6 @@ window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    if (vrSimActive) stereoEffect.setSize(window.innerWidth, window.innerHeight);
 });
 
 // ═══════════════════════════════════════════════════════
@@ -1454,10 +1471,10 @@ function animate() {
     elapsedTime += delta;
 
     if (vrSimActive) {
-        // VR Simulator mode: stereo rendering + mouse look + WASD
+        // VR Simulator: first-person single-view + mouse look + WASD
         updateVRSimMovement(delta);
         updateVRSimGaze();
-        stereoEffect.render(scene, camera);
+        renderer.render(scene, camera);
     } else {
         // Desktop / Real VR mode
         updateCameraAnim();

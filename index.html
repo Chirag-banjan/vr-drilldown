@@ -1,0 +1,1510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Spatial Analytics Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #e0e0e0; }
+        canvas { display: block; }
+
+        #hud { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        #hud > * { pointer-events: auto; }
+
+        #breadcrumb {
+            position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+            background: rgba(10, 10, 30, 0.85); border: 1px solid rgba(79, 195, 247, 0.3);
+            border-radius: 8px; padding: 8px 18px; font-size: 14px;
+            backdrop-filter: blur(10px); white-space: nowrap;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .bc-home { cursor: pointer; font-size: 18px; }
+        .bc-home:hover { transform: scale(1.2); }
+        .bc-sep { font-weight: bold; font-size: 16px; margin: 0 2px; }
+        .bc-sep.x { color: #4FC3F7; }
+        .bc-sep.y { color: #81C784; }
+        .bc-sep.z { color: #FFB74D; }
+        .bc-label { cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: background 0.2s; }
+        .bc-label:hover { background: rgba(255,255,255,0.1); }
+        .bc-label.x { background: rgba(79,195,247,0.1); }
+        .bc-label.y { background: rgba(129,199,132,0.1); }
+        .bc-label.z { background: rgba(255,183,77,0.1); }
+
+        #nav-buttons {
+            position: absolute; top: 16px; left: 16px;
+            display: flex; gap: 8px;
+        }
+        .nav-btn {
+            background: rgba(10, 10, 30, 0.85); border: 1px solid rgba(79, 195, 247, 0.3);
+            color: #e0e0e0; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+            font-size: 14px; backdrop-filter: blur(10px); transition: all 0.2s;
+        }
+        .nav-btn:hover { background: rgba(79, 195, 247, 0.2); border-color: #4FC3F7; }
+        .nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+        #depth-indicator {
+            position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+            background: rgba(10, 10, 30, 0.85); border: 1px solid rgba(255, 183, 77, 0.3);
+            border-radius: 8px; padding: 6px 16px; font-size: 12px;
+            backdrop-filter: blur(10px); color: #FFB74D;
+        }
+
+        #tooltip {
+            position: absolute; display: none;
+            background: rgba(10, 10, 30, 0.95); border: 1px solid rgba(79, 195, 247, 0.5);
+            border-radius: 6px; padding: 8px 12px; font-size: 13px;
+            pointer-events: none; backdrop-filter: blur(10px); z-index: 20;
+        }
+
+        #minimap-container {
+            position: absolute; bottom: 16px; right: 16px;
+            background: rgba(10, 10, 30, 0.85); border: 1px solid rgba(79, 195, 247, 0.2);
+            border-radius: 8px; padding: 8px; backdrop-filter: blur(10px);
+        }
+        #minimap { display: block; }
+
+        #help-btn {
+            position: absolute; bottom: 16px; left: 16px;
+            width: 32px; height: 32px; border-radius: 50%;
+            background: rgba(10, 10, 30, 0.85); border: 1px solid rgba(79, 195, 247, 0.3);
+            color: #4FC3F7; font-size: 16px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #help-btn:hover { background: rgba(79, 195, 247, 0.2); }
+
+        #help-overlay {
+            display: none; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10, 10, 30, 0.95); border: 1px solid rgba(79, 195, 247, 0.4);
+            border-radius: 12px; padding: 24px 32px; backdrop-filter: blur(20px);
+            font-size: 14px; line-height: 2; min-width: 360px;
+        }
+        #help-overlay h3 { color: #4FC3F7; margin-bottom: 12px; font-size: 16px; }
+        #help-overlay .key { background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; font-family: monospace; }
+
+        #onboarding {
+            position: absolute; display: none;
+            background: rgba(79, 195, 247, 0.15); border: 1px solid rgba(79, 195, 247, 0.5);
+            border-radius: 8px; padding: 10px 16px; font-size: 14px; color: #4FC3F7;
+            pointer-events: none; z-index: 15;
+            animation: pulse-border 2s infinite;
+        }
+        @keyframes pulse-border { 0%,100% { border-color: rgba(79,195,247,0.3); } 50% { border-color: rgba(79,195,247,0.8); } }
+
+        #info-panel {
+            position: absolute; top: 16px; right: 16px;
+            background: rgba(10, 10, 30, 0.85); border: 1px solid rgba(206, 147, 216, 0.3);
+            border-radius: 8px; padding: 12px 16px; backdrop-filter: blur(10px);
+            font-size: 12px; min-width: 160px; display: none;
+        }
+        #info-panel .label { color: #9e9e9e; margin-bottom: 4px; }
+        #info-panel .value { font-size: 22px; font-weight: 700; color: #fff; }
+        #info-panel .trend { font-size: 13px; margin-top: 4px; }
+        .trend-up { color: #81C784; }
+        .trend-down { color: #E57373; }
+
+        /* ── VR Controls ── */
+        #vr-controls {
+            position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 10px; z-index: 12;
+        }
+        .vr-btn {
+            padding: 12px 22px; border-radius: 12px; cursor: pointer;
+            font-size: 14px; font-weight: 600; border: none;
+            transition: all 0.3s; display: flex; align-items: center; gap: 8px;
+            letter-spacing: 0.3px;
+        }
+        .vr-btn svg { width: 22px; height: 22px; }
+        #enter-vr-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; border: 1px solid rgba(102, 126, 234, 0.5);
+        }
+        #enter-vr-btn:hover:not(:disabled) { box-shadow: 0 0 24px rgba(102,126,234,0.5); transform: translateY(-1px); }
+        #enter-vr-btn:disabled { opacity: 0.35; cursor: default; filter: grayscale(0.6); }
+        #vr-sim-btn {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white; border: 1px solid rgba(245, 87, 108, 0.4);
+        }
+        #vr-sim-btn:hover { box-shadow: 0 0 24px rgba(245,87,108,0.5); transform: translateY(-1px); }
+        .vr-btn-label-sub { font-size: 10px; opacity: 0.7; display: block; }
+
+        /* ── VR Simulator Overlay ── */
+        #vr-sim-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: none; z-index: 5; pointer-events: none;
+        }
+        .vr-eye {
+            position: absolute; top: 0; width: 50%; height: 100%;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.45) 72%, rgba(0,0,0,0.92) 100%);
+            border-radius: 0;
+        }
+        .vr-eye.left { left: 0; }
+        .vr-eye.right { right: 0; }
+        .vr-divider {
+            position: absolute; left: 50%; top: 0; width: 5px; height: 100%;
+            background: #000; transform: translateX(-50%);
+        }
+        .vr-crosshair {
+            position: absolute; top: 50%; width: 28px; height: 28px;
+            transform: translate(-50%, -50%); opacity: 0.7;
+        }
+        .vr-crosshair.left { left: 25%; }
+        .vr-crosshair.right { left: 75%; }
+        .vr-crosshair::before, .vr-crosshair::after {
+            content: ''; position: absolute; background: rgba(79, 195, 247, 0.8); border-radius: 1px;
+        }
+        .vr-crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+        .vr-crosshair::after { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+        .vr-crosshair-dot {
+            position: absolute; top: 50%; width: 6px; height: 6px; border-radius: 50%;
+            background: rgba(79,195,247,0.9); transform: translate(-50%,-50%);
+        }
+        .vr-crosshair-dot.left { left: 25%; }
+        .vr-crosshair-dot.right { left: 75%; }
+
+        #vr-sim-hud {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+            display: none; z-index: 15; text-align: center;
+        }
+        #vr-sim-hud > * { pointer-events: auto; }
+        #exit-vr-btn {
+            background: linear-gradient(135deg, #f5576c, #f093fb); color: white;
+            border: 1px solid rgba(245,87,108,0.5);
+            padding: 10px 24px; border-radius: 10px; cursor: pointer;
+            font-size: 14px; font-weight: 600; transition: all 0.3s;
+        }
+        #exit-vr-btn:hover { box-shadow: 0 0 20px rgba(245,87,108,0.5); }
+
+        #vr-sim-info {
+            position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+            display: none; z-index: 15; pointer-events: none;
+            background: rgba(10,10,30,0.85); border: 1px solid rgba(240,147,251,0.4);
+            border-radius: 8px; padding: 8px 18px; font-size: 12px; color: #f093fb;
+            backdrop-filter: blur(10px);
+        }
+
+        #vr-sim-prompt {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            display: none; z-index: 16; text-align: center;
+            background: rgba(10,10,30,0.92); border: 1px solid rgba(240,147,251,0.5);
+            border-radius: 16px; padding: 28px 40px; backdrop-filter: blur(20px);
+            animation: pulse-border 2s infinite;
+        }
+        #vr-sim-prompt h3 { color: #f093fb; margin-bottom: 12px; font-size: 18px; }
+        #vr-sim-prompt p { color: #ccc; font-size: 13px; line-height: 1.8; }
+        #vr-sim-prompt .key { background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; font-family: monospace; color: #fff; }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        <div id="nav-buttons">
+            <button class="nav-btn" id="home-btn" title="Home (H)">&#x1F3E0; Home</button>
+            <button class="nav-btn" id="back-btn" title="Back (Backspace)" disabled>&larr; Back</button>
+        </div>
+        <div id="breadcrumb"><span class="bc-home">&#x1F3E0;</span></div>
+        <div id="depth-indicator">Depth: Level 0 &mdash; Overview</div>
+        <div id="minimap-container"><canvas id="minimap" width="180" height="130"></canvas></div>
+        <div id="tooltip"></div>
+        <button id="help-btn">?</button>
+        <div id="help-overlay">
+            <h3>Controls</h3>
+            <span class="key">&larr; / &rarr;</span> Follow pipeline (X-axis)<br>
+            <span class="key">&uarr; / &darr;</span> Switch segment (Y-axis)<br>
+            <span class="key">Click panel</span> Drill down (Z-axis)<br>
+            <span class="key">Backspace</span> Go back<br>
+            <span class="key">H</span> Return to overview<br>
+            <span class="key">Right-drag</span> Orbit camera<br>
+            <span class="key">Scroll</span> Zoom<br>
+            <span class="key">?</span> Toggle this sheet
+        </div>
+        <div id="onboarding">Click any panel to explore &rarr;</div>
+        <div id="info-panel">
+            <div class="label" id="info-label"></div>
+            <div class="value" id="info-value"></div>
+            <div class="trend" id="info-trend"></div>
+        </div>
+        <div id="vr-controls">
+            <button class="vr-btn" id="enter-vr-btn" title="Enter immersive VR">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.74 6H3.21C2.55 6 2 6.57 2 7.28v8.44c0 .7.55 1.28 1.23 1.28h4.79a2 2 0 0 0 1.86-1.29l1.14-2.85a1 1 0 0 1 .93-.64h.1a1 1 0 0 1 .93.64l1.14 2.85a2 2 0 0 0 1.86 1.29h4.79c.68 0 1.23-.57 1.23-1.28V7.28C22 6.57 21.43 6 20.74 6zM7.5 13.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm9 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
+                <span>Enter VR<span class="vr-btn-label-sub">Checking...</span></span>
+            </button>
+            <button class="vr-btn" id="vr-sim-btn">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H3V5h18v14zM12 6a1 1 0 0 0-1 1v4H7a1 1 0 0 0 0 2h4v4a1 1 0 0 0 2 0v-4h4a1 1 0 0 0 0-2h-4V7a1 1 0 0 0-1-1z"/></svg>
+                <span>VR Simulator<span class="vr-btn-label-sub">No Headset Needed</span></span>
+            </button>
+        </div>
+    </div>
+
+    <!-- VR Simulator Overlay (outside HUD so it persists when HUD is hidden) -->
+    <div id="vr-sim-overlay">
+        <div class="vr-eye left"></div>
+        <div class="vr-eye right"></div>
+        <div class="vr-divider"></div>
+        <div class="vr-crosshair left"></div>
+        <div class="vr-crosshair right"></div>
+        <div class="vr-crosshair-dot left"></div>
+        <div class="vr-crosshair-dot right"></div>
+    </div>
+    <div id="vr-sim-hud">
+        <button id="exit-vr-btn">Exit VR Simulator</button>
+    </div>
+    <div id="vr-sim-info">
+        WASD Move &bull; Mouse Look &bull; Click Interact &bull; Backspace Back &bull; Esc Unlock
+    </div>
+    <div id="vr-sim-prompt">
+        <h3>VR Simulator Mode</h3>
+        <p>
+            <span class="key">Click</span> on the screen to start looking around<br>
+            <span class="key">WASD</span> to move through the scene<br>
+            <span class="key">Mouse</span> to look around (head tracking)<br>
+            <span class="key">Click</span> to interact with panels (gaze cursor)<br>
+            <span class="key">Backspace</span> to go back<br>
+            <span class="key">Esc</span> to release mouse &bull; then click Exit button
+        </p>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { StereoEffect } from 'three/addons/effects/StereoEffect.js';
+
+// ═══════════════════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════════════════
+const PANEL_W = 2.4, PANEL_H = 1.7;
+const X_SPACE = 3.2, Y_SPACE = 2.4, Z_SPACE = 6;
+const CHART_W = 480, CHART_H = 340;
+const SEGMENTS = ['Enterprise', 'SMB', 'Startup'];
+const STAGES = ['Ad Spend', 'Leads', 'Pipeline', 'Revenue'];
+const SEG_COLORS = ['#4FC3F7', '#81C784', '#FFB74D'];
+const CHART_PALETTE = ['#4FC3F7', '#81C784', '#FFB74D', '#CE93D8', '#E57373', '#4DB6AC', '#FFF176'];
+const HOME_CAM = new THREE.Vector3(0, 0, 14);
+const HOME_TARGET = new THREE.Vector3(0, 0, 0);
+
+// ═══════════════════════════════════════════════════════
+// DUMMY DATA
+// ═══════════════════════════════════════════════════════
+const summaryData = {};
+const baseVals = { 'Ad Spend': [450,280,150], 'Leads': [1200,850,620], 'Pipeline': [2800,1500,800], 'Revenue': [1500,900,450] };
+const months6 = ['Jan','Feb','Mar','Apr','May','Jun'];
+
+SEGMENTS.forEach((seg, si) => {
+    summaryData[seg] = {};
+    STAGES.forEach((stage, xi) => {
+        const base = baseVals[stage][si];
+        const data = months6.map((m, i) => ({ label: m, value: Math.round(base * (0.8 + Math.random() * 0.4) * (1 + i * 0.04)) }));
+        summaryData[seg][stage] = {
+            title: stage, subtitle: seg, value: base,
+            unit: stage === 'Leads' ? '' : 'K', prefix: stage === 'Leads' ? '' : '$',
+            chartType: xi % 2 === 0 ? 'bar' : 'line',
+            data, trend: Math.round((Math.random() - 0.3) * 20),
+            segIdx: si, stageIdx: xi, color: SEG_COLORS[si]
+        };
+    });
+});
+
+function genDrillDown(seg, stage) {
+    const m = { Enterprise: 1.5, SMB: 1.0, Startup: 0.6 }[seg];
+    const channels = ['Google Ads', 'LinkedIn', 'Meta', 'Email', 'Organic'];
+    const regions = ['North', 'South', 'East', 'West'];
+    const months12 = 'J F M A M J J A S O N D'.split(' ');
+    return [
+        { title: `${stage} by Channel`, chartType: 'bar', color: SEG_COLORS[SEGMENTS.indexOf(seg)],
+          data: channels.map(c => ({ label: c, value: Math.round((40 + Math.random() * 160) * m) })) },
+        { title: `${stage} by Region`, chartType: 'donut', color: SEG_COLORS[SEGMENTS.indexOf(seg)],
+          data: regions.map(r => ({ label: r, value: Math.round(15 + Math.random() * 35) })) },
+        { title: `${stage} Trend (12M)`, chartType: 'line', color: SEG_COLORS[SEGMENTS.indexOf(seg)],
+          data: months12.map((ml, i) => ({ label: ml, value: Math.round((30 + Math.random() * 50) * m * (1 + i * 0.025)) })) }
+    ];
+}
+
+function genLevel2(parentTitle) {
+    const items = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta'];
+    return [
+        { title: `${parentTitle} — Top Items`, chartType: 'bar', color: '#CE93D8',
+          data: items.slice(0, 6).map(it => ({ label: it, value: Math.round(10 + Math.random() * 90) })) },
+        { title: `${parentTitle} — Distribution`, chartType: 'donut', color: '#CE93D8',
+          data: ['Cat A', 'Cat B', 'Cat C', 'Cat D', 'Cat E'].map(c => ({ label: c, value: Math.round(10 + Math.random() * 40) })) },
+        { title: `${parentTitle} — Weekly`, chartType: 'line', color: '#CE93D8',
+          data: Array.from({length: 8}, (_, i) => ({ label: `W${i+1}`, value: Math.round(20 + Math.random() * 80) })) }
+    ];
+}
+
+// ═══════════════════════════════════════════════════════
+// CHART RENDERING (Canvas 2D)
+// ═══════════════════════════════════════════════════════
+function createChartCanvas(panelData) {
+    const canvas = document.createElement('canvas');
+    canvas.width = CHART_W; canvas.height = CHART_H;
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    const grad = ctx.createLinearGradient(0, 0, 0, CHART_H);
+    grad.addColorStop(0, '#141428'); grad.addColorStop(1, '#0d0d20');
+    ctx.fillStyle = grad; roundRect(ctx, 0, 0, CHART_W, CHART_H, 12); ctx.fill();
+
+    // Title
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 16px -apple-system, sans-serif';
+    ctx.fillText(panelData.title, 16, 28);
+    if (panelData.subtitle) { ctx.fillStyle = panelData.color || '#9e9e9e'; ctx.font = '12px sans-serif'; ctx.fillText(panelData.subtitle, 16, 46); }
+
+    // KPI value (for summary panels)
+    if (panelData.value !== undefined) {
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 28px sans-serif';
+        ctx.fillText(`${panelData.prefix || ''}${panelData.value.toLocaleString()}${panelData.unit || ''}`, 16, 78);
+        if (panelData.trend !== undefined) {
+            const up = panelData.trend >= 0;
+            ctx.fillStyle = up ? '#81C784' : '#E57373';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.fillText(`${up ? '▲' : '▼'} ${Math.abs(panelData.trend)}%`, 16, 98);
+        }
+    }
+
+    const chartArea = { x: 16, y: panelData.value !== undefined ? 110 : 56, w: CHART_W - 32, h: CHART_H - (panelData.value !== undefined ? 130 : 76) };
+
+    switch (panelData.chartType) {
+        case 'bar': drawBarChart(ctx, chartArea, panelData.data, panelData.color); break;
+        case 'line': drawLineChart(ctx, chartArea, panelData.data, panelData.color); break;
+        case 'donut': drawDonutChart(ctx, chartArea, panelData.data); break;
+    }
+
+    return canvas;
+}
+
+function drawBarChart(ctx, area, data, color) {
+    const n = data.length;
+    const barW = Math.min((area.w / n) * 0.65, 40);
+    const gap = (area.w - barW * n) / (n + 1);
+    const maxVal = Math.max(...data.map(d => d.value)) * 1.15;
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+        const yy = area.y + (area.h * i) / 3;
+        ctx.beginPath(); ctx.moveTo(area.x, yy); ctx.lineTo(area.x + area.w, yy); ctx.stroke();
+    }
+
+    data.forEach((d, i) => {
+        const x = area.x + gap + i * (barW + gap);
+        const barH = (d.value / maxVal) * (area.h - 20);
+        const y = area.y + area.h - barH - 16;
+
+        const barGrad = ctx.createLinearGradient(x, y, x, y + barH);
+        const c = CHART_PALETTE[i % CHART_PALETTE.length];
+        barGrad.addColorStop(0, c); barGrad.addColorStop(1, adjustAlpha(c, 0.5));
+        ctx.fillStyle = barGrad;
+        roundRect(ctx, x, y, barW, barH, 3); ctx.fill();
+
+        // Label
+        ctx.fillStyle = '#9e9e9e'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(d.label, x + barW / 2, area.y + area.h - 2);
+        // Value on top
+        ctx.fillStyle = '#e0e0e0'; ctx.font = '10px sans-serif';
+        ctx.fillText(d.value.toLocaleString(), x + barW / 2, y - 4);
+        ctx.textAlign = 'left';
+    });
+}
+
+function drawLineChart(ctx, area, data, color) {
+    const n = data.length;
+    const maxVal = Math.max(...data.map(d => d.value)) * 1.15;
+    const stepX = area.w / (n - 1);
+    const c = color || CHART_PALETTE[0];
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+        const yy = area.y + (area.h * i) / 3;
+        ctx.beginPath(); ctx.moveTo(area.x, yy); ctx.lineTo(area.x + area.w, yy); ctx.stroke();
+    }
+
+    // Area fill
+    ctx.beginPath();
+    ctx.moveTo(area.x, area.y + area.h - 16);
+    data.forEach((d, i) => {
+        const x = area.x + i * stepX;
+        const y = area.y + area.h - 16 - (d.value / maxVal) * (area.h - 24);
+        i === 0 ? ctx.lineTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.lineTo(area.x + (n - 1) * stepX, area.y + area.h - 16);
+    ctx.closePath();
+    const areaGrad = ctx.createLinearGradient(0, area.y, 0, area.y + area.h);
+    areaGrad.addColorStop(0, adjustAlpha(c, 0.3)); areaGrad.addColorStop(1, adjustAlpha(c, 0.02));
+    ctx.fillStyle = areaGrad; ctx.fill();
+
+    // Line
+    ctx.beginPath(); ctx.strokeStyle = c; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+    data.forEach((d, i) => {
+        const x = area.x + i * stepX;
+        const y = area.y + area.h - 16 - (d.value / maxVal) * (area.h - 24);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Dots & labels
+    data.forEach((d, i) => {
+        const x = area.x + i * stepX;
+        const y = area.y + area.h - 16 - (d.value / maxVal) * (area.h - 24);
+        ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#9e9e9e'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(d.label, x, area.y + area.h - 2);
+        ctx.textAlign = 'left';
+    });
+}
+
+function drawDonutChart(ctx, area, data) {
+    const total = data.reduce((s, d) => s + d.value, 0);
+    const cx = area.x + area.w * 0.38, cy = area.y + area.h * 0.5;
+    const r = Math.min(area.w * 0.32, area.h * 0.42);
+    const inner = r * 0.55;
+    let angle = -Math.PI / 2;
+
+    data.forEach((d, i) => {
+        const sweep = (d.value / total) * Math.PI * 2;
+        ctx.beginPath(); ctx.moveTo(cx + inner * Math.cos(angle), cy + inner * Math.sin(angle));
+        ctx.arc(cx, cy, r, angle, angle + sweep);
+        ctx.arc(cx, cy, inner, angle + sweep, angle, true);
+        ctx.closePath();
+        ctx.fillStyle = CHART_PALETTE[i % CHART_PALETTE.length]; ctx.fill();
+        angle += sweep;
+    });
+
+    // Center text
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(total.toLocaleString(), cx, cy + 6);
+    ctx.fillStyle = '#9e9e9e'; ctx.font = '10px sans-serif';
+    ctx.fillText('Total', cx, cy + 20);
+    ctx.textAlign = 'left';
+
+    // Legend
+    const lx = area.x + area.w * 0.72, ly = area.y + 8;
+    data.forEach((d, i) => {
+        const yy = ly + i * 22;
+        ctx.fillStyle = CHART_PALETTE[i % CHART_PALETTE.length];
+        roundRect(ctx, lx, yy, 10, 10, 2); ctx.fill();
+        ctx.fillStyle = '#e0e0e0'; ctx.font = '11px sans-serif';
+        ctx.fillText(`${d.label} (${Math.round(d.value / total * 100)}%)`, lx + 16, yy + 9);
+    });
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+}
+
+function adjustAlpha(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ═══════════════════════════════════════════════════════
+// THREE.JS SCENE SETUP
+// ═══════════════════════════════════════════════════════
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x060612);
+scene.fog = new THREE.FogExp2(0x060612, 0.018);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.copy(HOME_CAM);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// StereoEffect for VR simulator
+const stereoEffect = new StereoEffect(renderer);
+stereoEffect.setEyeSeparation(0.064);
+
+// VR state
+let vrSimActive = false;
+let vrSimYaw = 0, vrSimPitch = 0;
+const vrSimKeys = {};
+const vrSimSavedState = { pos: null, target: null };
+
+// Check real WebXR support
+let vrSupported = false;
+const vrBtn = document.getElementById('enter-vr-btn');
+const isSecureContext = window.isSecureContext;
+const ua = navigator.userAgent.toLowerCase();
+const isQuestBrowser = ua.includes('quest') || ua.includes('oculus') || ua.includes('pacific') || ua.includes('oculusbrowser');
+
+function setVRBtnState(enabled, sublabel, title) {
+    vrBtn.disabled = !enabled;
+    vrBtn.querySelector('.vr-btn-label-sub').textContent = sublabel;
+    vrBtn.title = title || sublabel;
+}
+
+async function checkXRSupport() {
+    // WebXR requires a secure context (HTTPS or localhost)
+    if (!isSecureContext) {
+        // Still enable the button — clicking it will explain the HTTPS requirement
+        setVRBtnState(true, 'HTTPS Required', 'Page must be served over HTTPS for WebXR');
+        return;
+    }
+
+    // Check navigator.xr
+    if (!navigator.xr) {
+        if (isQuestBrowser) {
+            // Quest browser but no navigator.xr — likely non-secure context or browser issue
+            setVRBtnState(true, 'Click to Try', 'Quest detected but WebXR API not found — click to diagnose');
+        } else {
+            setVRBtnState(false, 'Not Available', 'WebXR not supported — use VR Simulator instead');
+        }
+        return;
+    }
+
+    // navigator.xr exists — check immersive-vr support
+    try {
+        const supported = await navigator.xr.isSessionSupported('immersive-vr');
+        if (supported) {
+            vrSupported = true;
+            setVRBtnState(true, 'Ready', 'Enter immersive VR');
+            return;
+        }
+    } catch (e) { console.warn('XR check error:', e); }
+
+    // Retry after delay (XR runtime may init late on Quest)
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+        const supported = await navigator.xr.isSessionSupported('immersive-vr');
+        if (supported) {
+            vrSupported = true;
+            setVRBtnState(true, 'Ready', 'Enter immersive VR');
+            return;
+        }
+    } catch (e) { /* ignore */ }
+
+    // navigator.xr exists but immersive-vr not confirmed — let user try anyway
+    setVRBtnState(true, 'Click to Try', 'WebXR present — click to attempt VR session');
+}
+checkXRSupport();
+
+// Controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.target.copy(HOME_TARGET);
+controls.minDistance = 3; controls.maxDistance = 30;
+controls.enablePan = false;
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x404060, 0.6));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(5, 10, 10); scene.add(dirLight);
+const pointLight1 = new THREE.PointLight(0x4FC3F7, 0.4, 30);
+pointLight1.position.set(-5, 3, 5); scene.add(pointLight1);
+const pointLight2 = new THREE.PointLight(0xCE93D8, 0.3, 30);
+pointLight2.position.set(5, -3, 5); scene.add(pointLight2);
+
+// Star field
+const starsGeo = new THREE.BufferGeometry();
+const starPositions = new Float32Array(3000);
+for (let i = 0; i < 3000; i++) starPositions[i] = (Math.random() - 0.5) * 120;
+starsGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+const starsMat = new THREE.PointsMaterial({ color: 0x445588, size: 0.08, sizeAttenuation: true });
+scene.add(new THREE.Points(starsGeo, starsMat));
+
+// Ground grid
+const gridHelper = new THREE.GridHelper(60, 60, 0x1a1a3e, 0x0d0d25);
+gridHelper.position.y = -6; gridHelper.material.transparent = true; gridHelper.material.opacity = 0.4;
+scene.add(gridHelper);
+
+// ═══════════════════════════════════════════════════════
+// PANEL SYSTEM
+// ═══════════════════════════════════════════════════════
+const allPanels = [];          // all panel meshes for raycasting
+const summaryPanels = [];      // level 0 groups
+const drillPanelsByParent = {};// key -> level 1 groups
+const level2PanelsByParent = {};
+const connectorLines = [];
+const dimmedPanels = [];       // track dimmed panel groups for restoration
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// Helper: find best raycast hit at the active depth level
+function findBestHit(hits) {
+    // Prefer panels at current level, then deeper levels; skip shallower dimmed panels
+    for (const hit of hits) {
+        const pg = hit.object.userData.parentGroup;
+        if (pg && pg.userData.level >= currentLevel) return pg;
+    }
+    return null;
+}
+
+function createPanel(panelData, position, level = 0) {
+    const group = new THREE.Group();
+    group.position.copy(position);
+
+    // Background plane
+    const bgGeo = new THREE.PlaneGeometry(PANEL_W, PANEL_H);
+    const bgMat = new THREE.MeshPhysicalMaterial({
+        color: 0x141428, transparent: true, opacity: 0.9,
+        roughness: 0.4, metalness: 0.05, side: THREE.DoubleSide,
+        emissive: new THREE.Color(panelData.color || '#4FC3F7'), emissiveIntensity: 0.02
+    });
+    const bg = new THREE.Mesh(bgGeo, bgMat);
+    group.add(bg);
+
+    // Chart texture
+    const chartCanvas = createChartCanvas(panelData);
+    const texture = new THREE.CanvasTexture(chartCanvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const chartGeo = new THREE.PlaneGeometry(PANEL_W - 0.08, PANEL_H - 0.08);
+    const chartMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+    const chartMesh = new THREE.Mesh(chartGeo, chartMat);
+    chartMesh.position.z = 0.015;
+    group.add(chartMesh);
+
+    // Glowing border
+    const borderColor = new THREE.Color(panelData.color || '#4FC3F7');
+    const edges = new THREE.EdgesGeometry(bgGeo);
+    const borderMat = new THREE.LineBasicMaterial({ color: borderColor, transparent: true, opacity: 0.6 });
+    group.add(new THREE.LineSegments(edges, borderMat));
+
+    // Subtle outer glow plane
+    const glowGeo = new THREE.PlaneGeometry(PANEL_W + 0.2, PANEL_H + 0.2);
+    const glowMat = new THREE.MeshBasicMaterial({
+        color: borderColor, transparent: true, opacity: 0.04, side: THREE.DoubleSide
+    });
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    glow.position.z = -0.02;
+    group.add(glow);
+
+    group.userData = { ...panelData, level, panelId: `${panelData.subtitle || ''}-${panelData.title}-L${level}` };
+
+    // For raycasting, we target the bg mesh
+    bg.userData = group.userData;
+    bg.userData.parentGroup = group;
+    allPanels.push(bg);
+
+    return group;
+}
+
+function buildSummaryGrid() {
+    const xOffset = -(STAGES.length - 1) * X_SPACE / 2;
+    const yOffset = -(SEGMENTS.length - 1) * Y_SPACE / 2;
+
+    SEGMENTS.forEach((seg, si) => {
+        STAGES.forEach((stage, xi) => {
+            const pos = new THREE.Vector3(xOffset + xi * X_SPACE, yOffset + (SEGMENTS.length - 1 - si) * Y_SPACE, 0);
+            const pData = summaryData[seg][stage];
+            const panel = createPanel(pData, pos, 0);
+            scene.add(panel);
+            summaryPanels.push(panel);
+        });
+    });
+
+    // Connector arrows along X (causal flow)
+    SEGMENTS.forEach((seg, si) => {
+        for (let xi = 0; xi < STAGES.length - 1; xi++) {
+            const p1 = summaryPanels[si * STAGES.length + xi].position;
+            const p2 = summaryPanels[si * STAGES.length + xi + 1].position;
+            const mid1 = new THREE.Vector3(p1.x + PANEL_W / 2 + 0.1, p1.y, p1.z);
+            const mid2 = new THREE.Vector3(p2.x - PANEL_W / 2 - 0.1, p2.y, p2.z);
+            drawConnector(mid1, mid2, 0x4FC3F7, 0.25);
+        }
+    });
+
+    // Y-axis brackets
+    STAGES.forEach((stage, xi) => {
+        const top = summaryPanels[0 * STAGES.length + xi].position;
+        const bot = summaryPanels[(SEGMENTS.length - 1) * STAGES.length + xi].position;
+        const bx = top.x - PANEL_W / 2 - 0.25;
+        drawConnector(new THREE.Vector3(bx, top.y + PANEL_H / 2, 0), new THREE.Vector3(bx, bot.y - PANEL_H / 2, 0), 0x81C784, 0.15);
+    });
+}
+
+function drawConnector(from, to, color, opacity) {
+    const points = [from, to];
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+    const line = new THREE.Line(geo, mat);
+    scene.add(line);
+    connectorLines.push(line);
+    return line;
+}
+
+function spawnDrillPanels(parentPanel) {
+    const ud = parentPanel.userData;
+    const key = `${ud.subtitle}-${ud.title}`;
+    if (drillPanelsByParent[key]) return drillPanelsByParent[key];
+
+    const drillData = genDrillDown(ud.subtitle, ud.title);
+    const parentPos = parentPanel.position;
+    const panels = [];
+
+    drillData.forEach((dd, i) => {
+        const xOff = (i - 1) * X_SPACE;
+        const pos = new THREE.Vector3(parentPos.x + xOff, parentPos.y, parentPos.z - Z_SPACE);
+        dd.subtitle = `${ud.subtitle} > ${ud.title}`;
+        const panel = createPanel(dd, pos, 1);
+        panel.scale.set(0.01, 0.01, 0.01);
+        scene.add(panel);
+        panels.push(panel);
+        animateScale(panel, new THREE.Vector3(1, 1, 1), 500, i * 100);
+    });
+
+    // Depth connectors
+    panels.forEach(p => {
+        drawConnector(
+            new THREE.Vector3(parentPos.x, parentPos.y, parentPos.z - PANEL_H / 2),
+            new THREE.Vector3(p.position.x, p.position.y, p.position.z + PANEL_H / 2),
+            0xFFB74D, 0.2
+        );
+    });
+
+    drillPanelsByParent[key] = panels;
+    return panels;
+}
+
+function spawnLevel2Panels(parentPanel) {
+    const ud = parentPanel.userData;
+    const key = ud.panelId;
+    if (level2PanelsByParent[key]) return level2PanelsByParent[key];
+
+    const l2Data = genLevel2(ud.title);
+    const parentPos = parentPanel.position;
+    const panels = [];
+
+    l2Data.forEach((dd, i) => {
+        const xOff = (i - 1) * X_SPACE * 0.9;
+        const pos = new THREE.Vector3(parentPos.x + xOff, parentPos.y, parentPos.z - Z_SPACE);
+        dd.subtitle = `Detail: ${ud.title}`;
+        const panel = createPanel(dd, pos, 2);
+        panel.scale.set(0.01, 0.01, 0.01);
+        scene.add(panel);
+        panels.push(panel);
+        animateScale(panel, new THREE.Vector3(1, 1, 1), 500, i * 100);
+    });
+
+    panels.forEach(p => {
+        drawConnector(
+            new THREE.Vector3(parentPos.x, parentPos.y, parentPos.z - PANEL_H / 2),
+            new THREE.Vector3(p.position.x, p.position.y, p.position.z + PANEL_H / 2),
+            0xCE93D8, 0.15
+        );
+    });
+
+    level2PanelsByParent[key] = panels;
+    return panels;
+}
+
+function animateScale(obj, target, duration, delay = 0) {
+    const start = obj.scale.clone();
+    const startTime = performance.now() + delay;
+    function tick() {
+        const t = Math.min((performance.now() - startTime) / duration, 1);
+        if (t < 0) { requestAnimationFrame(tick); return; }
+        const e = 1 - Math.pow(1 - t, 3);
+        obj.scale.lerpVectors(start, target, e);
+        if (t < 1) requestAnimationFrame(tick);
+    }
+    tick();
+}
+
+// ═══════════════════════════════════════════════════════
+// CAMERA ANIMATION
+// ═══════════════════════════════════════════════════════
+let cameraAnim = null;
+
+function flyTo(targetPos, targetLookAt, duration = 800) {
+    if (vrSimActive) {
+        // VR Simulator: snap teleport (no smooth anim to prevent nausea)
+        camera.position.copy(targetPos);
+        // Compute yaw/pitch to face the target
+        const dir = new THREE.Vector3().subVectors(targetLookAt, targetPos).normalize();
+        vrSimYaw = Math.atan2(-dir.x, -dir.z);
+        vrSimPitch = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
+        return;
+    }
+    controls.enabled = false;
+    cameraAnim = {
+        sp: camera.position.clone(), ep: targetPos.clone(),
+        st: controls.target.clone(), et: targetLookAt.clone(),
+        start: performance.now(), dur: duration
+    };
+}
+
+function updateCameraAnim() {
+    if (!cameraAnim) return;
+    const { sp, ep, st, et, start, dur } = cameraAnim;
+    const t = Math.min((performance.now() - start) / dur, 1);
+    const e = 1 - Math.pow(1 - t, 3); // ease-out cubic
+    camera.position.lerpVectors(sp, ep, e);
+    controls.target.lerpVectors(st, et, e);
+    if (t >= 1) { cameraAnim = null; controls.enabled = true; }
+}
+
+// ═══════════════════════════════════════════════════════
+// NAVIGATION STATE
+// ═══════════════════════════════════════════════════════
+const navHistory = [];
+let currentLevel = 0;
+let currentFocus = null; // { segment, stage, level }
+let firstInteraction = false;
+
+function pushNav(camPos, camTarget, level, focus) {
+    navHistory.push({ camPos: camPos.clone(), camTarget: camTarget.clone(), level, focus: { ...focus } });
+    currentLevel = level;
+    currentFocus = { ...focus };
+    updateHUD();
+}
+
+function popNav() {
+    if (navHistory.length <= 1) return goHome();
+    navHistory.pop();
+    const prev = navHistory[navHistory.length - 1];
+
+    // Restore panels based on which level we're returning to
+    if (prev.level === 0) {
+        // Going back to overview — restore all summary panels
+        restoreAllPanels();
+    } else if (prev.level === 1 && currentLevel === 2) {
+        // Going back from level 2 to level 1 — restore level 1 panels
+        Object.values(drillPanelsByParent).forEach(arr => arr.forEach(p => restorePanel(p)));
+    }
+
+    currentLevel = prev.level;
+    currentFocus = prev.focus ? { ...prev.focus } : null;
+    flyTo(prev.camPos, prev.camTarget, 700);
+    updateHUD();
+}
+
+function goHome() {
+    navHistory.length = 0;
+    currentLevel = 0; currentFocus = null;
+    flyTo(HOME_CAM, HOME_TARGET, 1000);
+    restoreAllPanels();
+    pushNav(HOME_CAM, HOME_TARGET, 0, {});
+    updateHUD();
+}
+
+function dimPanel(panelGroup) {
+    // Save original opacities then dim
+    if (!panelGroup.userData._origOpacities) {
+        panelGroup.userData._origOpacities = [];
+        panelGroup.children.forEach(c => {
+            panelGroup.userData._origOpacities.push(c.material ? (c.material.opacity ?? 1) : null);
+        });
+    }
+    panelGroup.children.forEach(c => {
+        if (c.material) { c.material.transparent = true; c.material.opacity = Math.max((c.material.opacity || 1) * 0.3, 0.08); }
+    });
+    if (!dimmedPanels.includes(panelGroup)) dimmedPanels.push(panelGroup);
+}
+
+function restorePanel(panelGroup) {
+    const orig = panelGroup.userData._origOpacities;
+    if (orig) {
+        panelGroup.children.forEach((c, i) => {
+            if (c.material && orig[i] !== null) c.material.opacity = orig[i];
+        });
+        delete panelGroup.userData._origOpacities;
+    }
+    const idx = dimmedPanels.indexOf(panelGroup);
+    if (idx !== -1) dimmedPanels.splice(idx, 1);
+}
+
+function restoreAllPanels() {
+    [...dimmedPanels].forEach(p => restorePanel(p));
+}
+
+function drillDown(panelGroup) {
+    const ud = panelGroup.userData;
+    if (!firstInteraction) { firstInteraction = true; document.getElementById('onboarding').style.display = 'none'; }
+
+    if (ud.level === 0) {
+        // Drill from summary to detail (level 1)
+        // Dim ALL summary panels so they don't block raycasts visually
+        summaryPanels.forEach(p => dimPanel(p));
+
+        const children = spawnDrillPanels(panelGroup);
+        const center = children[1] ? children[1].position : children[0].position;
+        // Camera between level 0 (Z=0) and level 1 (Z=-6): place at center.z + 5
+        const camPos = new THREE.Vector3(center.x, center.y, center.z + 5);
+        flyTo(camPos, center.clone(), 800);
+        pushNav(camPos, center.clone(), 1, { segment: ud.subtitle, stage: ud.title });
+    } else if (ud.level === 1) {
+        // Drill from detail to level 2
+        // Dim level 1 panels
+        const parentKey = `${ud.subtitle.split(' > ')[0]}-${ud.subtitle.split(' > ')[1] || ud.title}`;
+        // Dim all visible level-1 panels
+        Object.values(drillPanelsByParent).forEach(arr => arr.forEach(p => dimPanel(p)));
+
+        const children = spawnLevel2Panels(panelGroup);
+        const center = children[1] ? children[1].position : children[0].position;
+        const camPos = new THREE.Vector3(center.x, center.y, center.z + 5);
+        flyTo(camPos, center.clone(), 800);
+        pushNav(camPos, center.clone(), 2, { ...currentFocus, detail: ud.title });
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// HUD UPDATES
+// ═══════════════════════════════════════════════════════
+const breadcrumbEl = document.getElementById('breadcrumb');
+const depthEl = document.getElementById('depth-indicator');
+const backBtn = document.getElementById('back-btn');
+const homeBtn = document.getElementById('home-btn');
+const helpBtn = document.getElementById('help-btn');
+const helpOverlay = document.getElementById('help-overlay');
+const infoPanel = document.getElementById('info-panel');
+const tooltipEl = document.getElementById('tooltip');
+const onboarding = document.getElementById('onboarding');
+
+function updateHUD() {
+    // Breadcrumb
+    let bc = '<span class="bc-home" onclick="window._goHome()">&#x1F3E0;</span>';
+    if (currentFocus && currentFocus.stage) {
+        bc += `<span class="bc-sep x">&rarr;</span><span class="bc-label x">${currentFocus.stage}</span>`;
+    }
+    if (currentFocus && currentFocus.segment) {
+        bc += `<span class="bc-sep y">&darr;</span><span class="bc-label y">${currentFocus.segment}</span>`;
+    }
+    if (currentLevel >= 1 && currentFocus) {
+        bc += `<span class="bc-sep z">&#x22B3;</span><span class="bc-label z">Detail</span>`;
+    }
+    if (currentLevel >= 2 && currentFocus && currentFocus.detail) {
+        bc += `<span class="bc-sep z">&#x22B3;</span><span class="bc-label z">${currentFocus.detail}</span>`;
+    }
+    breadcrumbEl.innerHTML = bc;
+
+    // Depth
+    const levelNames = ['Overview', 'Breakdown', 'Granular Detail'];
+    depthEl.textContent = `Depth: Level ${currentLevel} — ${levelNames[currentLevel] || 'Detail'}`;
+
+    // Back button
+    backBtn.disabled = navHistory.length <= 1;
+
+    // Minimap
+    drawMinimap();
+}
+
+function drawMinimap() {
+    const canvas = document.getElementById('minimap');
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Isometric grid params
+    const ox = w * 0.5, oy = h * 0.75;
+    const sx = 18, sy = 11, sz = 28; // scale for x, y, z axes
+
+    function isoProject(gx, gy, gz) {
+        return {
+            x: ox + (gx - gy) * sx,
+            y: oy - (gx + gy) * sy * 0.5 - gz * sz
+        };
+    }
+
+    // Draw Z=0 grid (summary)
+    for (let xi = 0; xi < STAGES.length; xi++) {
+        for (let si = 0; si < SEGMENTS.length; si++) {
+            const { x, y } = isoProject(xi, si, 0);
+            const isFocused = currentFocus && currentFocus.stage === STAGES[xi] && currentFocus.segment === SEGMENTS[si] && currentLevel === 0;
+
+            ctx.fillStyle = isFocused ? '#FFD54F' : (currentLevel === 0 ? SEG_COLORS[si] : 'rgba(100,100,140,0.4)');
+            ctx.fillRect(x - 4, y - 4, 8, 8);
+            ctx.strokeStyle = 'rgba(79,195,247,0.3)'; ctx.lineWidth = 0.5;
+            ctx.strokeRect(x - 4, y - 4, 8, 8);
+        }
+    }
+
+    // Draw Z=1 (if drilled)
+    if (currentLevel >= 1 && currentFocus && currentFocus.stage) {
+        const xi = STAGES.indexOf(currentFocus.stage);
+        const si = SEGMENTS.indexOf(currentFocus.segment);
+        for (let di = 0; di < 3; di++) {
+            const { x, y } = isoProject(xi + di - 1, si, 1);
+            const isFocused = currentLevel === 1;
+            ctx.fillStyle = isFocused ? '#FFB74D' : 'rgba(255,183,77,0.4)';
+            ctx.fillRect(x - 4, y - 4, 8, 8);
+
+            // Z connector
+            const parent = isoProject(xi, si, 0);
+            ctx.strokeStyle = 'rgba(255,183,77,0.3)'; ctx.lineWidth = 1;
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath(); ctx.moveTo(parent.x, parent.y); ctx.lineTo(x, y); ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    }
+
+    // Draw Z=2 (if deep drilled)
+    if (currentLevel >= 2 && currentFocus && currentFocus.stage) {
+        const xi = STAGES.indexOf(currentFocus.stage);
+        const si = SEGMENTS.indexOf(currentFocus.segment);
+        for (let di = 0; di < 3; di++) {
+            const { x, y } = isoProject(xi + di - 1, si, 2);
+            ctx.fillStyle = currentLevel === 2 ? '#CE93D8' : 'rgba(206,147,216,0.4)';
+            ctx.fillRect(x - 4, y - 4, 8, 8);
+
+            const parent = isoProject(xi + di - 1, si, 1);
+            ctx.strokeStyle = 'rgba(206,147,216,0.3)'; ctx.lineWidth = 1;
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath(); ctx.moveTo(parent.x, parent.y); ctx.lineTo(x, y); ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    }
+
+    // Axis labels
+    ctx.font = '9px sans-serif';
+    ctx.fillStyle = '#4FC3F7'; ctx.fillText('Pipeline →', w - 60, h - 4);
+    ctx.fillStyle = '#81C784'; ctx.fillText('← Segment', 2, h - 4);
+    ctx.fillStyle = '#FFB74D'; ctx.fillText('Depth ↑', 2, 12);
+}
+
+// ═══════════════════════════════════════════════════════
+// INTERACTION (Mouse)
+// ═══════════════════════════════════════════════════════
+let hoveredPanel = null;
+
+function onMouseMove(e) {
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(allPanels);
+
+    if (hits.length > 0) {
+        const pg = findBestHit(hits);
+        if (pg) {
+            const panel = allPanels.find(p => p.userData.parentGroup === pg);
+            if (panel && hoveredPanel !== panel) {
+                unhoverPanel();
+                hoveredPanel = panel;
+                pg.children.forEach(c => {
+                    if (c.material && c.material.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.08;
+                });
+                renderer.domElement.style.cursor = 'pointer';
+
+                // Show info panel
+                const ud = panel.userData;
+                if (ud.value !== undefined) {
+                    infoPanel.style.display = 'block';
+                    document.getElementById('info-label').textContent = `${ud.title} — ${ud.subtitle || ''}`;
+                    document.getElementById('info-value').textContent = `${ud.prefix || ''}${ud.value.toLocaleString()}${ud.unit || ''}`;
+                    const trend = ud.trend;
+                    if (trend !== undefined) {
+                        const tEl = document.getElementById('info-trend');
+                        tEl.textContent = `${trend >= 0 ? '▲' : '▼'} ${Math.abs(trend)}% vs last period`;
+                        tEl.className = `trend ${trend >= 0 ? 'trend-up' : 'trend-down'}`;
+                    }
+                }
+            }
+        } else {
+            unhoverPanel();
+        }
+    } else {
+        unhoverPanel();
+    }
+}
+
+function unhoverPanel() {
+    if (hoveredPanel) {
+        const pg = hoveredPanel.userData.parentGroup;
+        if (pg) {
+            pg.children.forEach(c => {
+                if (c.material && c.material.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.02;
+            });
+        }
+        hoveredPanel = null;
+        renderer.domElement.style.cursor = 'default';
+        infoPanel.style.display = 'none';
+    }
+}
+
+function onClick(e) {
+    if (cameraAnim) return;
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(allPanels);
+    if (hits.length > 0) {
+        const pg = findBestHit(hits);
+        if (pg) drillDown(pg);
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// VR CONTROLLERS (Real WebXR Headset)
+// ═══════════════════════════════════════════════════════
+const controller1 = renderer.xr.getController(0);
+const controller2 = renderer.xr.getController(1);
+scene.add(controller1); scene.add(controller2);
+
+function addControllerRay(controller) {
+    const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -8)]);
+    const mat = new THREE.LineBasicMaterial({ color: 0x4FC3F7, transparent: true, opacity: 0.5 });
+    const ray = new THREE.Line(geo, mat);
+    controller.add(ray);
+    return ray;
+}
+addControllerRay(controller1);
+addControllerRay(controller2);
+
+controller1.addEventListener('selectstart', onVRSelect);
+controller2.addEventListener('selectstart', onVRSelect);
+
+function onVRSelect(event) {
+    const controller = event.target;
+    const tempMatrix = new THREE.Matrix4();
+    tempMatrix.identity().extractRotation(controller.matrixWorld);
+    raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+    const hits = raycaster.intersectObjects(allPanels);
+    if (hits.length > 0) { const pg = findBestHit(hits); if (pg) drillDown(pg); }
+}
+
+controller1.addEventListener('squeezestart', () => popNav());
+controller2.addEventListener('squeezestart', () => popNav());
+
+// Real VR session handlers
+renderer.xr.addEventListener('sessionstart', () => {
+    document.getElementById('hud').style.display = 'none';
+    document.getElementById('vr-controls').style.display = 'none';
+});
+renderer.xr.addEventListener('sessionend', () => {
+    document.getElementById('hud').style.display = '';
+    document.getElementById('vr-controls').style.display = '';
+});
+
+document.getElementById('enter-vr-btn').addEventListener('click', async () => {
+    // Diagnose issues step by step
+    if (!isSecureContext) {
+        const loc = window.location;
+        alert(
+            'WebXR requires HTTPS.\n\n' +
+            'Current: ' + loc.protocol + '//' + loc.host + '\n\n' +
+            'Solutions:\n' +
+            '1. Serve via HTTPS (e.g. npx serve --ssl)\n' +
+            '2. Use localhost (npx serve then open localhost:3000)\n' +
+            '3. Use a tunnel (e.g. ngrok http 3000)\n\n' +
+            'On Quest: open https://your-pc-ip:port in Quest Browser.'
+        );
+        return;
+    }
+
+    if (!navigator.xr) {
+        alert(
+            'navigator.xr is not available.\n\n' +
+            (isQuestBrowser
+                ? 'Quest browser detected but WebXR API missing.\nTry restarting the browser or updating Quest software.'
+                : 'This browser does not support WebXR.\nTry Chrome, Edge, or Quest Browser.\n\nYou can still use the VR Simulator button!')
+        );
+        return;
+    }
+
+    try {
+        const session = await navigator.xr.requestSession('immersive-vr', {
+            optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+        });
+        renderer.xr.setSession(session);
+    } catch (err) {
+        console.warn('VR session error:', err);
+        alert(
+            'Could not start VR session.\n\n' +
+            'Error: ' + (err.message || err) + '\n\n' +
+            'Possible fixes:\n' +
+            '1. Make sure headset is connected and awake\n' +
+            '2. Page must be served over HTTPS\n' +
+            '3. Check browser WebXR permissions\n' +
+            '4. Try refreshing the page'
+        );
+    }
+});
+
+// ═══════════════════════════════════════════════════════
+// VR SIMULATOR
+// ═══════════════════════════════════════════════════════
+const vrSimOverlay = document.getElementById('vr-sim-overlay');
+const vrSimHud = document.getElementById('vr-sim-hud');
+const vrSimInfo = document.getElementById('vr-sim-info');
+const vrSimPrompt = document.getElementById('vr-sim-prompt');
+
+function enterVRSim() {
+    if (vrSimActive) return;
+    vrSimActive = true;
+
+    // Save current camera state
+    vrSimSavedState.pos = camera.position.clone();
+    vrSimSavedState.target = controls.target.clone();
+
+    // Compute initial yaw/pitch from current camera orientation
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    vrSimYaw = Math.atan2(-dir.x, -dir.z);
+    vrSimPitch = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
+
+    // Disable orbit controls
+    controls.enabled = false;
+
+    // Show sim UI, hide normal HUD
+    document.getElementById('hud').style.display = 'none';
+    vrSimOverlay.style.display = 'block';
+    vrSimHud.style.display = 'block';
+    vrSimInfo.style.display = 'block';
+    vrSimPrompt.style.display = 'block';
+
+    // Resize stereo effect
+    stereoEffect.setSize(window.innerWidth, window.innerHeight);
+
+    // Set camera FOV for VR feel
+    camera.fov = 90;
+    camera.updateProjectionMatrix();
+}
+
+function exitVRSim() {
+    if (!vrSimActive) return;
+    vrSimActive = false;
+
+    // Release pointer lock
+    if (document.pointerLockElement) document.exitPointerLock();
+
+    // Restore camera
+    if (vrSimSavedState.pos) camera.position.copy(vrSimSavedState.pos);
+    if (vrSimSavedState.target) controls.target.copy(vrSimSavedState.target);
+    camera.fov = 60;
+    camera.updateProjectionMatrix();
+    camera.rotation.set(0, 0, 0);
+    controls.enabled = true;
+    controls.update();
+
+    // Hide sim UI, show normal HUD
+    vrSimOverlay.style.display = 'none';
+    vrSimHud.style.display = 'none';
+    vrSimInfo.style.display = 'none';
+    vrSimPrompt.style.display = 'none';
+    document.getElementById('hud').style.display = '';
+
+    // Restore renderer size (StereoEffect may have changed it)
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// Pointer lock for mouse look
+function requestPointerLockForSim() {
+    if (vrSimActive && !document.pointerLockElement) {
+        renderer.domElement.requestPointerLock();
+    }
+}
+
+document.addEventListener('pointerlockchange', () => {
+    if (vrSimActive) {
+        if (document.pointerLockElement) {
+            vrSimPrompt.style.display = 'none';
+            vrSimHud.style.display = 'none'; // hide exit btn while locked
+        } else {
+            vrSimHud.style.display = 'block'; // show exit btn when unlocked
+        }
+    }
+});
+
+// Mouse look
+document.addEventListener('mousemove', (e) => {
+    if (!vrSimActive || !document.pointerLockElement) return;
+    vrSimYaw -= e.movementX * 0.002;
+    vrSimPitch -= e.movementY * 0.002;
+    vrSimPitch = Math.max(-Math.PI * 0.45, Math.min(Math.PI * 0.45, vrSimPitch));
+});
+
+// Click in VR sim = interact with panel at gaze center
+function onVRSimClick() {
+    if (!vrSimActive || !document.pointerLockElement) return;
+    if (cameraAnim) return;
+
+    // Raycast from screen center (gaze direction)
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const hits = raycaster.intersectObjects(allPanels);
+    if (hits.length > 0) {
+        const pg = findBestHit(hits);
+        if (pg) drillDown(pg);
+    }
+}
+
+// WASD movement
+function updateVRSimMovement(delta) {
+    if (!vrSimActive) return;
+
+    // Apply look rotation
+    const euler = new THREE.Euler(vrSimPitch, vrSimYaw, 0, 'YXZ');
+    camera.quaternion.setFromEuler(euler);
+
+    // WASD movement in camera's local direction
+    if (!document.pointerLockElement) return;
+    const speed = 5 * delta;
+    const move = new THREE.Vector3();
+    if (vrSimKeys['w'] || vrSimKeys['arrowup']) move.z -= 1;
+    if (vrSimKeys['s'] || vrSimKeys['arrowdown']) move.z += 1;
+    if (vrSimKeys['a'] || vrSimKeys['arrowleft']) move.x -= 1;
+    if (vrSimKeys['d'] || vrSimKeys['arrowright']) move.x += 1;
+    if (vrSimKeys['q'] || vrSimKeys[' ']) move.y += 1;  // up
+    if (vrSimKeys['e'] || vrSimKeys['shift']) move.y -= 1; // down
+
+    if (move.lengthSq() > 0) {
+        move.normalize().multiplyScalar(speed);
+        // Apply yaw rotation only (not pitch) for horizontal movement
+        const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), vrSimYaw);
+        move.applyQuaternion(yawQuat);
+        camera.position.add(move);
+    }
+}
+
+// VR sim gaze highlight — show which panel the user is looking at
+let vrSimGazeTarget = null;
+function updateVRSimGaze() {
+    if (!vrSimActive) return;
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const hits = raycaster.intersectObjects(allPanels);
+    const pg = hits.length > 0 ? findBestHit(hits) : null;
+
+    if (pg !== vrSimGazeTarget) {
+        // Un-highlight previous
+        if (vrSimGazeTarget) {
+            vrSimGazeTarget.children.forEach(c => {
+                if (c.material && c.material.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.02;
+            });
+        }
+        vrSimGazeTarget = pg;
+        // Highlight new
+        if (pg) {
+            pg.children.forEach(c => {
+                if (c.material && c.material.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.12;
+            });
+        }
+    }
+}
+
+// VR Sim button handlers
+document.getElementById('vr-sim-btn').addEventListener('click', enterVRSim);
+document.getElementById('exit-vr-btn').addEventListener('click', exitVRSim);
+
+// ═══════════════════════════════════════════════════════
+// KEYBOARD
+// ═══════════════════════════════════════════════════════
+window.addEventListener('keydown', (e) => {
+    vrSimKeys[e.key.toLowerCase()] = true;
+
+    if (vrSimActive) {
+        if (e.key === 'Backspace') { e.preventDefault(); popNav(); }
+        return; // don't process desktop shortcuts in VR sim
+    }
+    switch (e.key) {
+        case 'Backspace': e.preventDefault(); popNav(); break;
+        case 'h': case 'H': goHome(); break;
+        case '?': helpOverlay.style.display = helpOverlay.style.display === 'none' ? 'block' : 'none'; break;
+        case 'Escape': helpOverlay.style.display = 'none'; break;
+    }
+});
+window.addEventListener('keyup', (e) => { vrSimKeys[e.key.toLowerCase()] = false; });
+
+// ═══════════════════════════════════════════════════════
+// BUTTON HANDLERS
+// ═══════════════════════════════════════════════════════
+homeBtn.addEventListener('click', () => goHome());
+backBtn.addEventListener('click', () => popNav());
+helpBtn.addEventListener('click', () => { helpOverlay.style.display = helpOverlay.style.display === 'none' ? 'block' : 'none'; });
+window._goHome = goHome;
+
+// ═══════════════════════════════════════════════════════
+// WINDOW RESIZE
+// ═══════════════════════════════════════════════════════
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    if (vrSimActive) stereoEffect.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ═══════════════════════════════════════════════════════
+// PANEL HOVER GLOW ANIMATION
+// ═══════════════════════════════════════════════════════
+const clock = new THREE.Clock();
+let elapsedTime = 0;
+
+function animatePanels(time) {
+    summaryPanels.forEach((p, i) => {
+        p.position.y += Math.sin(time * 0.8 + i * 0.7) * 0.0003;
+    });
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER LOOP
+// ═══════════════════════════════════════════════════════
+function animate() {
+    const delta = clock.getDelta();
+    elapsedTime += delta;
+
+    if (vrSimActive) {
+        // VR Simulator mode: stereo rendering + mouse look + WASD
+        updateVRSimMovement(delta);
+        updateVRSimGaze();
+        stereoEffect.render(scene, camera);
+    } else {
+        // Desktop / Real VR mode
+        updateCameraAnim();
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    animatePanels(elapsedTime);
+}
+
+renderer.setAnimationLoop(animate);
+
+// ═══════════════════════════════════════════════════════
+// EVENT LISTENERS
+// ═══════════════════════════════════════════════════════
+renderer.domElement.addEventListener('mousemove', (e) => {
+    if (vrSimActive) return; // VR sim uses pointerlockchange mousemove
+    onMouseMove(e);
+});
+
+renderer.domElement.addEventListener('click', (e) => {
+    if (vrSimActive) {
+        if (!document.pointerLockElement) {
+            requestPointerLockForSim();
+        } else {
+            onVRSimClick();
+        }
+        return;
+    }
+    onClick(e);
+});
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+buildSummaryGrid();
+pushNav(HOME_CAM, HOME_TARGET, 0, {});
+
+// Show onboarding
+setTimeout(() => {
+    onboarding.style.display = 'block';
+    onboarding.style.left = '50%';
+    onboarding.style.top = '50%';
+    onboarding.style.transform = 'translate(-50%, -50%)';
+}, 500);
+setTimeout(() => { if (!firstInteraction) onboarding.style.display = 'none'; }, 8000);
+
+    </script>
+</body>
+</html>

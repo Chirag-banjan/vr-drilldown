@@ -93,10 +93,10 @@
         @keyframes pulse-border { 0%,100% { border-color: rgba(79,195,247,0.3); } 50% { border-color: rgba(79,195,247,0.8); } }
 
         #info-panel {
-            position: absolute; top: 16px; right: 16px;
+            position: fixed; top: 16px; right: 16px;
             background: rgba(10, 10, 30, 0.85); border: 1px solid rgba(206, 147, 216, 0.3);
             border-radius: 8px; padding: 12px 16px; backdrop-filter: blur(10px);
-            font-size: 12px; min-width: 160px; display: none;
+            font-size: 12px; min-width: 160px; display: none; z-index: 20;
         }
         #info-panel .label { color: #9e9e9e; margin-bottom: 4px; }
         #info-panel .value { font-size: 22px; font-weight: 700; color: #fff; }
@@ -218,11 +218,6 @@
             <span class="key">?</span> Toggle this sheet
         </div>
         <div id="onboarding">Click any panel to explore &rarr;</div>
-        <div id="info-panel">
-            <div class="label" id="info-label"></div>
-            <div class="value" id="info-value"></div>
-            <div class="trend" id="info-trend"></div>
-        </div>
         <div id="vr-controls">
             <button class="vr-btn" id="enter-vr-btn" title="Enter immersive VR">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.74 6H3.21C2.55 6 2 6.57 2 7.28v8.44c0 .7.55 1.28 1.23 1.28h4.79a2 2 0 0 0 1.86-1.29l1.14-2.85a1 1 0 0 1 .93-.64h.1a1 1 0 0 1 .93.64l1.14 2.85a2 2 0 0 0 1.86 1.29h4.79c.68 0 1.23-.57 1.23-1.28V7.28C22 6.57 21.43 6 20.74 6zM7.5 13.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm9 0a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
@@ -233,6 +228,13 @@
                 <span>VR Simulator<span class="vr-btn-label-sub">No Headset Needed</span></span>
             </button>
         </div>
+    </div>
+
+    <!-- Info panel (outside HUD so it works in VR sim too) -->
+    <div id="info-panel">
+        <div class="label" id="info-label"></div>
+        <div class="value" id="info-value"></div>
+        <div class="trend" id="info-trend"></div>
     </div>
 
     <!-- VR Simulator Overlay (single-view first-person) -->
@@ -639,12 +641,21 @@ const mouse = new THREE.Vector2();
 
 // Helper: find best raycast hit at the active depth level
 function findBestHit(hits) {
-    // Prefer panels at current level, then deeper levels; skip shallower dimmed panels
+    // Prefer panels at current level, then deeper levels; skip hidden/shallower dimmed panels
     for (const hit of hits) {
         const pg = hit.object.userData.parentGroup;
-        if (pg && pg.userData.level >= currentLevel) return pg;
+        if (pg && pg.visible && pg.userData.level >= currentLevel) return pg;
     }
     return null;
+}
+
+// Hide/show cached child panels to prevent stale panels from intercepting raycasts
+function hideChildPanels() {
+    Object.values(drillPanelsByParent).forEach(arr => arr.forEach(p => { p.visible = false; }));
+    Object.values(level2PanelsByParent).forEach(arr => arr.forEach(p => { p.visible = false; }));
+}
+function showPanels(panels) {
+    panels.forEach(p => { p.visible = true; });
 }
 
 function createPanel(panelData, position, level = 0) {
@@ -876,13 +887,19 @@ function popNav() {
     navHistory.pop();
     const prev = navHistory[navHistory.length - 1];
 
-    // Restore panels based on which level we're returning to
+    // Hide all child panels first, then selectively show/restore
     if (prev.level === 0) {
-        // Going back to overview — restore all summary panels
+        // Going back to overview — hide all drill panels, restore summary
+        hideChildPanels();
         restoreAllPanels();
     } else if (prev.level === 1 && currentLevel === 2) {
-        // Going back from level 2 to level 1 — restore level 1 panels
-        Object.values(drillPanelsByParent).forEach(arr => arr.forEach(p => restorePanel(p)));
+        // Going back from level 2 to level 1 — hide level 2, restore level 1
+        Object.values(level2PanelsByParent).forEach(arr => arr.forEach(p => { p.visible = false; }));
+        // Re-show and restore the level-1 panels that correspond to current focus
+        Object.values(drillPanelsByParent).forEach(arr => arr.forEach(p => {
+            p.visible = true;
+            restorePanel(p);
+        }));
     }
 
     currentLevel = prev.level;
@@ -894,8 +911,9 @@ function popNav() {
 function goHome() {
     navHistory.length = 0;
     currentLevel = 0; currentFocus = null;
-    flyTo(HOME_CAM, HOME_TARGET, 1000);
+    hideChildPanels();
     restoreAllPanels();
+    flyTo(HOME_CAM, HOME_TARGET, 1000);
     pushNav(HOME_CAM, HOME_TARGET, 0, {});
     updateHUD();
 }
@@ -936,10 +954,12 @@ function drillDown(panelGroup) {
 
     if (ud.level === 0) {
         // Drill from summary to detail (level 1)
-        // Dim ALL summary panels so they don't block raycasts visually
+        // Hide any stale child panels from previous drill-downs, dim summaries
+        hideChildPanels();
         summaryPanels.forEach(p => dimPanel(p));
 
         const children = spawnDrillPanels(panelGroup);
+        showPanels(children);
         const center = children[1] ? children[1].position : children[0].position;
         // Camera between level 0 (Z=0) and level 1 (Z=-6): place at center.z + 5
         const camPos = new THREE.Vector3(center.x, center.y, center.z + 5);
@@ -947,12 +967,12 @@ function drillDown(panelGroup) {
         pushNav(camPos, center.clone(), 1, { segment: ud.subtitle, stage: ud.title });
     } else if (ud.level === 1) {
         // Drill from detail to level 2
-        // Dim level 1 panels
-        const parentKey = `${ud.subtitle.split(' > ')[0]}-${ud.subtitle.split(' > ')[1] || ud.title}`;
-        // Dim all visible level-1 panels
+        // Hide stale level-2 panels, dim level-1 panels
+        Object.values(level2PanelsByParent).forEach(arr => arr.forEach(p => { p.visible = false; }));
         Object.values(drillPanelsByParent).forEach(arr => arr.forEach(p => dimPanel(p)));
 
         const children = spawnLevel2Panels(panelGroup);
+        showPanels(children);
         const center = children[1] ? children[1].position : children[0].position;
         const camPos = new THREE.Vector3(center.x, center.y, center.z + 5);
         flyTo(camPos, center.clone(), 800);
@@ -1098,20 +1118,7 @@ function onMouseMove(e) {
                     if (c.material && c.material.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.08;
                 });
                 renderer.domElement.style.cursor = 'pointer';
-
-                // Show info panel
-                const ud = panel.userData;
-                if (ud.value !== undefined) {
-                    infoPanel.style.display = 'block';
-                    document.getElementById('info-label').textContent = `${ud.title} — ${ud.subtitle || ''}`;
-                    document.getElementById('info-value').textContent = `${ud.prefix || ''}${ud.value.toLocaleString()}${ud.unit || ''}`;
-                    const trend = ud.trend;
-                    if (trend !== undefined) {
-                        const tEl = document.getElementById('info-trend');
-                        tEl.textContent = `${trend >= 0 ? '▲' : '▼'} ${Math.abs(trend)}% vs last period`;
-                        tEl.className = `trend ${trend >= 0 ? 'trend-up' : 'trend-down'}`;
-                    }
-                }
+                showInfoPanel(panel.userData);
             }
         } else {
             unhoverPanel();
@@ -1131,8 +1138,33 @@ function unhoverPanel() {
         }
         hoveredPanel = null;
         renderer.domElement.style.cursor = 'default';
-        infoPanel.style.display = 'none';
+        hideInfoPanel();
     }
+}
+
+// Shared info-panel helpers (used by desktop, VR sim, and VR controller hover)
+function showInfoPanel(ud) {
+    if (ud.value !== undefined) {
+        infoPanel.style.display = 'block';
+        document.getElementById('info-label').textContent = `${ud.title} — ${ud.subtitle || ''}`;
+        document.getElementById('info-value').textContent = `${ud.prefix || ''}${ud.value.toLocaleString()}${ud.unit || ''}`;
+        if (ud.trend !== undefined) {
+            const tEl = document.getElementById('info-trend');
+            tEl.textContent = `${ud.trend >= 0 ? '▲' : '▼'} ${Math.abs(ud.trend)}% vs last period`;
+            tEl.className = `trend ${ud.trend >= 0 ? 'trend-up' : 'trend-down'}`;
+        } else {
+            document.getElementById('info-trend').textContent = '';
+        }
+    } else {
+        // Drill-down panels without a KPI — show title only
+        infoPanel.style.display = 'block';
+        document.getElementById('info-label').textContent = ud.title || '';
+        document.getElementById('info-value').textContent = ud.subtitle || '';
+        document.getElementById('info-trend').textContent = '';
+    }
+}
+function hideInfoPanel() {
+    infoPanel.style.display = 'none';
 }
 
 function onClick(e) {
@@ -1180,6 +1212,91 @@ function onVRSelect(event) {
 
 controller1.addEventListener('squeezestart', () => popNav());
 controller2.addEventListener('squeezestart', () => popNav());
+
+// Per-frame VR controller hover highlight + 3D floating tooltip
+let vrHoveredPanel = null;
+
+// 3D tooltip for real VR (HTML info-panel isn't visible inside headset)
+const vrTooltipCanvas = document.createElement('canvas');
+vrTooltipCanvas.width = 400; vrTooltipCanvas.height = 160;
+const vrTooltipCtx = vrTooltipCanvas.getContext('2d');
+const vrTooltipTexture = new THREE.CanvasTexture(vrTooltipCanvas);
+vrTooltipTexture.colorSpace = THREE.SRGBColorSpace;
+const vrTooltipMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.2, 0.48),
+    new THREE.MeshBasicMaterial({ map: vrTooltipTexture, transparent: true, opacity: 0.95, side: THREE.DoubleSide })
+);
+vrTooltipMesh.visible = false;
+scene.add(vrTooltipMesh);
+
+function renderVRTooltip(ud) {
+    const ctx = vrTooltipCtx;
+    const w = vrTooltipCanvas.width, h = vrTooltipCanvas.height;
+    // Background
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(10, 10, 30, 0.92)';
+    roundRect(ctx, 0, 0, w, h, 12); ctx.fill();
+    ctx.strokeStyle = ud.color || 'rgba(206, 147, 216, 0.6)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 0, 0, w, h, 12); ctx.stroke();
+    // Title
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px -apple-system, sans-serif';
+    ctx.fillText(`${ud.title}`, 16, 32);
+    // Subtitle
+    if (ud.subtitle) {
+        ctx.fillStyle = ud.color || '#9e9e9e'; ctx.font = '14px sans-serif';
+        ctx.fillText(ud.subtitle, 16, 54);
+    }
+    // Value
+    if (ud.value !== undefined) {
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 32px sans-serif';
+        ctx.fillText(`${ud.prefix || ''}${ud.value.toLocaleString()}${ud.unit || ''}`, 16, 100);
+        // Trend
+        if (ud.trend !== undefined) {
+            const up = ud.trend >= 0;
+            ctx.fillStyle = up ? '#81C784' : '#E57373';
+            ctx.font = 'bold 16px sans-serif';
+            ctx.fillText(`${up ? '▲' : '▼'} ${Math.abs(ud.trend)}% vs last period`, 16, 130);
+        }
+    }
+    vrTooltipTexture.needsUpdate = true;
+}
+
+function updateVRControllerHover() {
+    if (!renderer.xr.isPresenting) {
+        if (vrTooltipMesh.visible) vrTooltipMesh.visible = false;
+        return;
+    }
+    // Use controller1 (primary hand) for hover
+    const tempMatrix = new THREE.Matrix4();
+    tempMatrix.identity().extractRotation(controller1.matrixWorld);
+    raycaster.ray.origin.setFromMatrixPosition(controller1.matrixWorld);
+    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+    const hits = raycaster.intersectObjects(allPanels);
+    const pg = hits.length > 0 ? findBestHit(hits) : null;
+
+    if (pg !== vrHoveredPanel) {
+        // Un-highlight previous
+        if (vrHoveredPanel) {
+            vrHoveredPanel.children.forEach(c => {
+                if (c.material && c.material.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.02;
+            });
+        }
+        vrHoveredPanel = pg;
+        // Highlight new + show 3D tooltip
+        if (pg) {
+            pg.children.forEach(c => {
+                if (c.material && c.material.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.12;
+            });
+            renderVRTooltip(pg.userData);
+            // Position tooltip above the hovered panel
+            vrTooltipMesh.position.set(pg.position.x, pg.position.y + PANEL_H / 2 + 0.35, pg.position.z + 0.1);
+            vrTooltipMesh.visible = true;
+        } else {
+            vrTooltipMesh.visible = false;
+        }
+    }
+}
 
 // Real VR session handlers
 const vrSavedCam = { pos: null, target: null };
@@ -1297,6 +1414,8 @@ function enterVRSim() {
 function exitVRSim() {
     if (!vrSimActive) return;
     vrSimActive = false;
+    vrSimGazeTarget = null;
+    hideInfoPanel();
 
     // Release pointer lock
     if (document.pointerLockElement) document.exitPointerLock();
@@ -1390,6 +1509,8 @@ function updateVRSimMovement(delta) {
 let vrSimGazeTarget = null;
 function updateVRSimGaze() {
     if (!vrSimActive) return;
+    // Ensure camera world matrix is up-to-date after quaternion/position changes
+    camera.updateMatrixWorld();
     raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
     const hits = raycaster.intersectObjects(allPanels);
     const pg = hits.length > 0 ? findBestHit(hits) : null;
@@ -1402,11 +1523,14 @@ function updateVRSimGaze() {
             });
         }
         vrSimGazeTarget = pg;
-        // Highlight new
+        // Highlight new + show info panel
         if (pg) {
             pg.children.forEach(c => {
                 if (c.material && c.material.emissiveIntensity !== undefined) c.material.emissiveIntensity = 0.12;
             });
+            showInfoPanel(pg.userData);
+        } else {
+            hideInfoPanel();
         }
     }
 }
@@ -1478,6 +1602,7 @@ function animate() {
     } else {
         // Desktop / Real VR mode
         updateCameraAnim();
+        updateVRControllerHover();
         controls.update();
         renderer.render(scene, camera);
     }

@@ -816,17 +816,28 @@ function spawnLevel2Panels(parentPanel) {
     return panels;
 }
 
+const activeScaleAnims = [];
+
 function animateScale(obj, target, duration, delay = 0) {
-    const start = obj.scale.clone();
-    const startTime = performance.now() + delay;
-    function tick() {
-        const t = Math.min((performance.now() - startTime) / duration, 1);
-        if (t < 0) { requestAnimationFrame(tick); return; }
+    activeScaleAnims.push({
+        obj,
+        start: obj.scale.clone(),
+        target: target.clone(),
+        startTime: performance.now() + delay,
+        duration
+    });
+}
+
+function updateScaleAnims() {
+    const now = performance.now();
+    for (let i = activeScaleAnims.length - 1; i >= 0; i--) {
+        const a = activeScaleAnims[i];
+        if (now < a.startTime) continue; // still in delay
+        const t = Math.min((now - a.startTime) / a.duration, 1);
         const e = 1 - Math.pow(1 - t, 3);
-        obj.scale.lerpVectors(start, target, e);
-        if (t < 1) requestAnimationFrame(tick);
+        a.obj.scale.lerpVectors(a.start, a.target, e);
+        if (t >= 1) activeScaleAnims.splice(i, 1);
     }
-    tick();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1607,6 +1618,7 @@ function animate() {
         renderer.render(scene, camera);
     }
 
+    updateScaleAnims();
     animatePanels(elapsedTime);
 }
 
